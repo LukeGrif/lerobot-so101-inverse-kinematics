@@ -1,6 +1,6 @@
 # The library without Python: make (build/libso101ik.a), make test (double, float and SO101_SMALL builds, and the
 # arm's moves on simulated servos in double and float),
-# make example (examples/ik.c).
+# make example (examples/ik.c run, and examples/where.c built: ./build/where PORT reads the arm).
 # The Python extension is built by uv sync (setup.py).
 CC ?= cc
 CFLAGS ?= -O3 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -std=gnu99
@@ -38,7 +38,10 @@ test: build/test build/test-float build/test-small build/test-arm build/test-arm
 build/ik: examples/ik.c build/libso101ik.a
 	$(CC) $(CFLAGS) -Iinclude -o $@ examples/ik.c build/libso101ik.a -lm
 
-example: build/ik
+build/where: examples/where.c build/libso101ik.a
+	$(CC) $(CFLAGS) -Iinclude -o $@ examples/where.c build/libso101ik.a -lm
+
+example: build/ik build/where
 	./build/ik
 
 model:

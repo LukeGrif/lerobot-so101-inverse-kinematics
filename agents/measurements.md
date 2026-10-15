@@ -48,6 +48,17 @@ so101_ik 34-36 microseconds, so101_ik_near 10, so101_ik_local 2-3, so101_collide
 so101_pose_eval 0.12-0.14. Across runs they move by up to three times with the core a process gets
 (AGENTS.md, Rules and traps), not with the precision.
 
+so101_tip, the tip alone, against the frames of so101_pose_eval over 20000 random poses with offsets:
+2.2e-16 m apart in double, 1.2e-7 m and 1.5e-5 degrees of pitch in float. Interleaved in one process
+against the frame product it replaced (the best of 40 rounds of 100000 calls): the point 40 ns against
+77 in double, 28 against 65 in float; with the pitch 70 against 90, and 50 against 68.
+
+A live readout's share of the library (examples/where.c's calls behind a HAL that does nothing:
+so101_cal_read, so101_arm_init, so101_arm_torque_off, so101_arm_where), float and SO101_SMALL at -Os,
+linked with unused functions and data dropped as ESP-IDF links: 4.2 KB of code, 0.6 KB of constants,
+1 KB of RAM (the so101_arm), the meshes left out; libm's sinf, cosf, atan2f and vsnprintf beside it.
+That is arm64; Xtensa code is about as dense or denser.
+
 ## On the arm: the triangle (media/triangle.jpg)
 
 examples/triangle.py on an SO-101 follower with 12 V STS3215 servos, with the leader arm on a second
@@ -67,6 +78,14 @@ flex, measured for that arm.
 - media/triangle.jpg: frames of the earlier run, filmed by a camera beside the table, the planned
   triangle and the tip's trail drawn in through a calibrated camera model from the servos'
   positions. The camera sees the plane x = 20 cm nearly edge-on.
+
+## On the arm: where the tip is (examples/where.py, examples/where.c)
+
+The same follower, folded in its rest pose, the same offsets. Arm.where() (one sync read of the six
+positions, 2 bytes each, and so101_tip): 1.38 ms a call from Python, 723 a second; the tip it gave
+equals Model.tip of the angles read. build/where, the calibration read from the servos' EEPROM, printed
+the same x, y, z and pitch as examples/where.py with the calibration file: 163.8, 7.7 and 18.4 mm,
+-59.7 degrees.
 
 ## Fast runs
 

@@ -165,11 +165,32 @@ void so101_pose_eval(const so101_model *m, const so101_real deg[SO101_NJ], so101
     so101_pose_from_frames(m, deg, F, out);
 }
 
+/* v = R Rz(q) v: a vector through a joint's origin rotation R and its turn, c = cos q, s = sin q */
+static inline void turn(const so101_real *R, so101_real c, so101_real s, so101_real v[3]) {
+    so101_real x = c * v[0] - s * v[1], y = s * v[0] + c * v[1], z = v[2];
+    v[0] = R[0] * x + R[1] * y + R[2] * z;
+    v[1] = R[3] * x + R[4] * y + R[5] * z;
+    v[2] = R[6] * x + R[7] * y + R[8] * z;
+}
+
+/* The tip alone (a live readout, a microcontroller): the tip point taken back through the joints, roll to
+ * pan, a vector through each instead of a product of frames, and no jaw. For the pitch two directions go
+ * along: the gripper's axis, and from the wrist link on the wrist flex axis (tip_pitch's d and n). */
 void so101_tip(const so101_model *m, const so101_real deg[SO101_NJ], so101_real tip[3], so101_real *pitch) {
-    so101_tf F[8];
-    so101_frames(m, deg, F);
-    for (int i = 0; i < 3; i++) tip[i] = F[7].p[i];
-    if (pitch) *pitch = tip_pitch(F);
+    const so101_real *T = SO101_TIP.R;
+    so101_real p[3] = {SO101_TIP.p[0], SO101_TIP.p[1], SO101_TIP.p[2]}, d[3] = {T[2], T[5], T[8]}, n[3] = {0, 0, 1};
+    for (int j = SO101_ROLL; j >= 0; j--) {
+        const so101_joint_def *J = &SO101_JOINTS[j];
+        so101_real q = (deg[j] + m->offsets[j]) * DEG, c = RCOS(q), s = RSIN(q);
+        turn(J->R, c, s, p);
+        for (int i = 0; i < 3; i++) p[i] += J->p[i];
+        if (pitch) {
+            turn(J->R, c, s, d);
+            if (j <= SO101_FLEX) turn(J->R, c, s, n);
+        }
+    }
+    for (int i = 0; i < 3; i++) tip[i] = p[i];
+    if (pitch) *pitch = RATAN2(d[2], d[0] * n[1] - d[1] * n[0]) / DEG;
 }
 
 void so101_fk_urdf(const so101_real q_deg[SO101_NA], so101_real T[16]) {

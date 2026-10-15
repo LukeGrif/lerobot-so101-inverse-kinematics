@@ -140,6 +140,16 @@ static int read_raw_positions(so101_arm *a, uint8_t addr, int raw[SO101_NJ]) {
     return SO101_OK;
 }
 
+int so101_arm_where(so101_arm *a, so101_real deg[SO101_NJ], so101_real tip[3], so101_real *pitch) {
+    int raw[SO101_NJ], rc = read_raw_positions(a, STS_PRESENT_POSITION, raw);
+    if (rc) return rc;
+    so101_real d[SO101_NJ];
+    for (int j = 0; j < SO101_NJ; j++) d[j] = from_raw(&a->cal[j], j, raw[j]);
+    if (deg) memcpy(deg, d, sizeof d);
+    so101_tip(&a->model, d, tip, pitch);
+    return SO101_OK;
+}
+
 static int write_raw_goals(so101_arm *a, const int raw[SO101_NJ]) {
     uint8_t id[SO101_NJ], d[SO101_NJ * 2];
     ids(a, id);
@@ -164,19 +174,31 @@ static int send_goals(so101_arm *a, const so101_real want[SO101_NJ]) {
     return write_raw_goals(a, raw);
 }
 
+/* What one servo holds in its EEPROM of a calibration, three tries; 0 if it answered. */
+static int eeprom_cal(so101_hal *h, uint8_t id, so101_servo_cal *c) {
+    int ok = 0, ho = 0, lo = 0, hi = 0;
+    for (int k = 0; k < 3 && !ok; k++)
+        ok = !so101_sts_read2(h, id, STS_HOMING_OFFSET, &ho) && !so101_sts_read2(h, id, STS_MIN_LIMIT, &lo)
+             && !so101_sts_read2(h, id, STS_MAX_LIMIT, &hi);
+    *c = (so101_servo_cal){id, so101_sts_signed(ho, 11), lo, hi};
+    return !ok;
+}
+
+int so101_cal_read(so101_hal *hal, so101_servo_cal cal[SO101_NJ]) {
+    for (int j = 0; j < SO101_NJ; j++)
+        if (eeprom_cal(hal, (uint8_t)(j + 1), &cal[j])) return SO101_EIO;
+    return SO101_OK;
+}
+
 int so101_arm_check(so101_arm *a) {
     for (int j = 0; j < SO101_NJ; j++) {
         uint8_t id = (uint8_t)a->cal[j].id;
-        int ok = 0, ho = 0, lo = 0, hi = 0;
-        for (int k = 0; k < 3 && !ok; k++)
-            ok = !so101_sts_read2(&a->hal, id, STS_HOMING_OFFSET, &ho) && !so101_sts_read2(&a->hal, id, STS_MIN_LIMIT, &lo)
-                 && !so101_sts_read2(&a->hal, id, STS_MAX_LIMIT, &hi);
-        if (!ok) return fail(a, SO101_EIO, "servo %d (%s) does not answer", id, SHORT[j]);
-        ho = so101_sts_signed(ho, 11);
-        if (ho != a->cal[j].homing_offset || lo != a->cal[j].range_min || hi != a->cal[j].range_max)
+        so101_servo_cal c;
+        if (eeprom_cal(&a->hal, id, &c)) return fail(a, SO101_EIO, "servo %d (%s) does not answer", id, SHORT[j]);
+        if (c.homing_offset != a->cal[j].homing_offset || c.range_min != a->cal[j].range_min || c.range_max != a->cal[j].range_max)
             return fail(a, SO101_ECAL, "servo %d (%s): Homing_Offset %d, limits %d..%d, the calibration says %d, %d..%d: "
-                        "restore the calibration first; nothing moved", id, SHORT[j], ho, lo, hi,
-                        a->cal[j].homing_offset, a->cal[j].range_min, a->cal[j].range_max);
+                        "restore the calibration first; nothing moved", id, SHORT[j], c.homing_offset, c.range_min,
+                        c.range_max, a->cal[j].homing_offset, a->cal[j].range_min, a->cal[j].range_max);
     }
     return SO101_OK;
 }

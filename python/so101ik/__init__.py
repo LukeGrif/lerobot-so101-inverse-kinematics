@@ -420,6 +420,12 @@ class Arm:
         """(degrees, load %, mA), each a dict by joint."""
         return self._arm.read()
 
+    def where(self) -> tuple[float, float, float, float]:
+        """(x, y, z, pitch): where the tip is (m) and the gripper's pitch (degrees), from one read of the
+        positions and the forward kinematics in C (so101_arm_where). With the torque off the arm can be
+        moved by hand meanwhile: examples/where.py."""
+        return self._arm.where()
+
     def check(self) -> None:
         """Every servo answers and holds the calibration in its EEPROM; Fault if not (nothing moves)."""
         self._arm.check()

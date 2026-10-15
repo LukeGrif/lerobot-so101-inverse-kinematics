@@ -217,6 +217,24 @@ int main(int argc, char **argv) {
     so101_arm_read(&a, pos, NULL, NULL);
     CHECK(off_by(&a, pos, a.start) < 1.5, "home ended %.1f degrees from the start pose", (double)off_by(&a, pos, a.start));
 
+    /* where, with the torque off: the calibration from the servos' EEPROM, then the lift turned 20 degrees by
+     * hand and the tip from one read, as so101_arm_read and so101_tip give it */
+    {
+        so101_servo_cal cal[NS];
+        CHECK(so101_cal_read(&a.hal, cal) == SO101_OK && !memcmp(cal, SO101_DEFAULT_CAL, sizeof cal),
+              "so101_cal_read did not give the calibration the servos hold");
+        so101_real deg[NS], tip[3], tip2[3], pitch, pitch2, lift = pos[SO101_LIFT];
+        s.pos[SO101_LIFT] += 4095.0 * 20 / 360;
+        a.model.offsets[SO101_ELBOW] = -5.9;
+        CHECK(so101_arm_where(&a, deg, tip, &pitch) == SO101_OK, "where: %s", a.err);
+        so101_arm_read(&a, pos, NULL, NULL);
+        so101_tip(&a.model, pos, tip2, &pitch2);
+        CHECK(!memcmp(deg, pos, sizeof pos) && !memcmp(tip, tip2, sizeof tip) && pitch == pitch2,
+              "where gave another pose or tip than so101_arm_read and so101_tip");
+        CHECK(fabs(deg[SO101_LIFT] - lift - 20) < 0.1, "the lift turned by %.2f degrees, not 20", (double)(deg[SO101_LIFT] - lift));
+        a.model.offsets[SO101_ELBOW] = 0;
+    }
+
     printf("%s: the arm's moves on the simulated servos: unled %.2f degrees off a chain's end, led %.2f; %d failures\n", kind,
            (double)unled, (double)led, failures);
     return failures != 0;

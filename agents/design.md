@@ -18,7 +18,11 @@ Read before changing src/. The numbers behind each choice are in measurements.md
   step): compiled in from a LeRobot calibration (SO101_DEFAULT_CAL), and set again from the arm's own
   file by the Python package at every start.
 - Forward kinematics (src/kin.c): each child frame is parent x origin x
-  Rz(q), 3x4 transforms. The gravity torque about a joint is 9.81 (a_x r_y - a_y r_x), r = sum of
+  Rz(q), 3x4 transforms. so101_tip, the tip alone (the arm's ticks, the simulated servos, a live
+  readout), takes the tip point the other way, from the gripper link back to the base, one vector
+  through each joint instead of a frame product, and leaves out the jaw: half the time of the frames
+  for the point, with the pitch's two directions carried along when it is asked for. make test holds
+  it to the frames over random poses. The gravity torque about a joint is 9.81 (a_x r_y - a_y r_x), r = sum of
   m c over the links beyond it less their mass times the axis's point, payload at the tip included.
   The cost is the sum of squared torques of lift, elbow, wrist flex and roll; the score adds
   comfort / 3 times the sum of (2 deg / range width)^2 over lift, elbow and wrist flex.
@@ -111,7 +115,10 @@ joints were moved to, their stops, so the fold follows each arm's own calibratio
 - One sync read a tick gets position, load and current of all six servos (registers 56 to 70, 2.2
   ms on an M1 Mac). The registers and sign bits are LeRobot's
   (lerobot/motors/feetech/tables.py): position sign at bit 15, load at bit 10, Homing_Offset at 11;
-  load in tenths of a percent, current in 6.5 mA steps. Degrees are LeRobot's: (raw - mid) * 360 /
+  load in tenths of a percent, current in 6.5 mA steps. so101_arm_where reads the positions alone (2
+  bytes a servo, 1.4 ms) and gives the tip; so101_cal_read reads a calibration out of the servos'
+  EEPROM (Homing_Offset, the two limits), which lerobot-calibrate wrote there and so101_arm_check
+  compares, so a board needs no calibration file to read the arm. Degrees are LeRobot's: (raw - mid) * 360 /
   4095; the gripper 0-100 over its range.
 - Ticks run on fixed deadlines (start + k tick), so a late wake-up does not push the rest back.
 - so101_hal is the board: write, read with a timeout, drain, a microsecond clock, sleep, and stop, log

@@ -217,12 +217,42 @@ int main(void) {
         so101_pose_eval(&m, deg, &p);
     }
     double t_fk = (now() - t0) / 200000;
+    /* so101_tip, the tip alone, against the frames of so101_pose_eval: random angles, an arm's kind of offsets */
+    so101_model mo = m;
+    so101_real offs[SO101_NA] = {1.5, 2.3, -5.9, -3.0, 0.7}, tip[3], pitch, sum = 0;
+    for (int j = 0; j < SO101_NA; j++) mo.offsets[j] = offs[j];
+    double worst_fk = 0, worst_pitch = 0;
+    srand(1);
+    for (int i = 0; i < 20000; i++) {
+        for (int j = 0; j < SO101_NJ; j++) deg[j] = (so101_real)(-160 + 320.0 * rand() / RAND_MAX);
+        so101_tip(&mo, deg, tip, &pitch);
+        so101_pose_eval(&mo, deg, &p);
+        for (int k = 0; k < 3; k++)
+            if (fabs(tip[k] - p.tip[k]) > worst_fk) worst_fk = fabs(tip[k] - p.tip[k]);
+        double dp = fabs(fmod(pitch - p.pitch + 540.0, 360.0) - 180);
+        if (dp > worst_pitch) worst_pitch = dp;
+    }
+    if (worst_fk > tol || worst_pitch > (sizeof(so101_real) == 4 ? 1e-3 : 1e-9)) {
+        printf("FAIL so101_tip: %.2g m and %.2g degrees from so101_pose_eval\n", worst_fk, worst_pitch);
+        failures++;
+    }
+    deg[0] = 0, deg[2] = 60, deg[3] = 30, deg[4] = -90;
+    t0 = now();
+    for (int i = 0; i < 200000; i++) {
+        deg[1] = (so101_real)(-60 + (i % 100) * 0.5);
+        so101_tip(&m, deg, tip, &pitch);
+        sum += tip[2] + pitch;
+    }
+    double t_tip = (now() - t0) / 200000;
+    if (sum != sum) return 2;
     printf("%s: so101_ik reached %d of %d points, mean score %.6f, the tip %.2g m from its target at most; %d failures\n",
            kind, reached, n, score_sum / reached, worst_tip, failures);
     printf("%s: so101_ik_near, %d steps of 2 mm: joints %.2f degrees apart at most; so101_ik_local, 2 cm: %.2g m off at most\n",
            kind, nn, worst_jump, worst_local);
+    printf("%s: so101_tip, 20000 random poses: %.2g m and %.2g degrees from so101_pose_eval at most\n", kind, worst_fk,
+           worst_pitch);
     printf("%s: a call (median): so101_ik %.1f us, so101_ik_near %.1f us, so101_ik_local %.2f us, so101_collides %.2f us, "
-           "so101_pose_eval %.3f us\n", kind, 1e6 * median(t_ik, n), 1e6 * median(t_near, nn), 1e6 * median(t_local, nl),
-           1e6 * t_col, 1e6 * t_fk);
+           "so101_pose_eval %.3f us, so101_tip %.3f us\n", kind, 1e6 * median(t_ik, n), 1e6 * median(t_near, nn),
+           1e6 * median(t_local, nl), 1e6 * t_col, 1e6 * t_fk, 1e6 * t_tip);
     return fast_tests(kind) + failures != 0 || worst_jump > 3;
 }

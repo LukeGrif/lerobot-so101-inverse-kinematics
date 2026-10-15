@@ -16,8 +16,10 @@ CLAUDE.local.md may say where such notes live.
 uv sync                                 # builds the C extension so101ik._core (again when a source changes)
 make test                               # the C library alone, in double, float and float with SO101_SMALL, and
                                         # the arm's moves on simulated servos (test/test_arm.c)
-make example                            # examples/ik.c, the kinematics from C
+make example                            # examples/ik.c, the kinematics from C; builds build/where too
 uv run examples/kinematics.py           # the Python binding, no arm
+uv run examples/where.py                # torque off, the tip live while the arm is moved by hand
+./build/where PORT                      # the same in C, the calibration from the servos' EEPROM
 uv run examples/triangle.py             # moves the arm: README.md, Safety
 SO101_PORT=sim uv run examples/triangle.py   # the same on simulated servos (src/sim.c), no arm
 uv run examples/figures/heart.py --dry  # a fast run planned and printed, no arm; without --dry it drives the arm
@@ -45,8 +47,8 @@ uv run --with 'placo>=0.9.6,<0.9.16' --with 'cmeel-urdfdom>=4,<5' --with 'cmeel-
   _arm.c and _path.c (the CPython binding; _path.c is path.c on numpy arrays). setup.py builds them
   with src/.
 - tools/: gen_model.py (src/model.c from the URDF and its meshes), bench.py, run_stats.py.
-  test/test.c and test/test_arm.c (the moves on sim.c) are make test. examples/: triangle.py (the arm), kinematics.py and ik.c (no arm),
-  figures/ (one script a figure, show.py, dance.py).
+  test/test.c and test/test_arm.c (the moves on sim.c) are make test. examples/: triangle.py (the arm), where.py and where.c (the tip live, torque off), kinematics.py and
+  ik.c (no arm), figures/ (one script a figure, show.py, dance.py).
 - media/: the README's pictures. .github/workflows/test.yml: make test, make example, the Python
   binding and `uv build` on Linux and macOS.
 

@@ -46,6 +46,25 @@ point cache left out with -DSO101_SMALL (`make test` runs both and checks them a
    run on the arm's 12 V supply, the ESP32 on its own 3.3 V.
 4. test/test.c on the board, for the times and to see float agree with a desktop's double run.
 
+## The first firmware: the tip on a display
+
+The smallest useful one, to build first: examples/where.c with the ESP32's HAL, and a display where
+it prints its terminal line. so101_cal_read takes the calibration from the servos' EEPROM,
+so101_arm_init and so101_arm_torque_off follow, then every 50 ms so101_arm_where and x, y, z (mm) and
+the pitch drawn. The arm is moved by hand, the board shows where the tip is.
+
+- It needs none of the IK, the meshes or the moves: about 4 KB of the library's code, 0.6 KB of
+  constants and 1 KB of RAM (measurements.md, The library alone), with ESP-IDF's
+  `-ffunction-sections` and `--gc-sections` dropping the rest. Build the whole component anyway: the
+  linker keeps what is called.
+- Time: a read is about 1.4 ms of bus at 1 Mbaud, so101_tip some microseconds on an S3 (five sines,
+  five cosines, an atan2 and about 200 multiplications in float; an estimate). The display's refresh
+  costs more than both.
+- A display of four lines is enough: an SSD1306 OLED (128x64, I2C) or a character LCD; or an ESP32-S3
+  board with one built in, which saves the wiring.
+- Later on the same board: a button that switches the torque on and holds the pose, or keeps the point
+  (x, y, z, pitch, what move_to takes back); the readout sent as the `state` command below.
+
 ## What it is for: coordinates over Wi-Fi, Bluetooth or buttons
 
 - Commands, one a line or a packet: `move_to x y z [pitch]` (so101_arm_move_to), `move_by dx dy dz`
@@ -69,6 +88,6 @@ point cache left out with -DSO101_SMALL (`make test` runs both and checks them a
   stream goes quiet for a tick or two. Not in the library yet; so101_arm_line_to plans a whole line
   first.
 - The same stops as on a desktop (stall, overload), and a hardware stop button wired to hal.stop.
-- The calibration: SO101_DEFAULT_CAL is compiled in from a LeRobot calibration by tools/gen_model.py; a
-  recalibrated arm needs `make model` and a new build, or the numbers kept in the ESP32's NVS and
-  sent over the link.
+- The calibration: so101_cal_read takes it from the servos' EEPROM at start, where lerobot-calibrate
+  wrote it, so a recalibrated arm needs no new build and nothing kept in NVS. SO101_DEFAULT_CAL (compiled
+  in by tools/gen_model.py) is another arm's and stays out of a firmware that moves one.

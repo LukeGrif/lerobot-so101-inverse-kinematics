@@ -260,6 +260,16 @@ static PyObject *arm_read(ArmObject *self, PyObject *noargs) {
     return Py_BuildValue("(NNN)", d, l, c);
 }
 
+static PyObject *arm_where(ArmObject *self, PyObject *noargs) {
+    OPEN(self);
+    TAKE(self);
+    so101_real tip[3], pitch;
+    int rc = so101_arm_where(&self->arm, NULL, tip, &pitch);
+    if (rc) return call_done(self, rc);
+    GIVE(self);
+    return Py_BuildValue("(dddd)", (double)tip[0], (double)tip[1], (double)tip[2], (double)pitch);
+}
+
 static PyObject *arm_torque_on(ArmObject *self, PyObject *noargs) {
     OPEN(self);
     TAKE(self);
@@ -640,6 +650,7 @@ static PyObject *arm_fast(ArmObject *self, PyObject *args, PyObject *kw);
 static PyMethodDef arm_methods[] = {
     {"check", (PyCFunction)arm_check, METH_NOARGS, "every servo answers and its EEPROM matches the calibration"},
     {"read", (PyCFunction)arm_read, METH_NOARGS, "read() -> (degrees, load %, mA), dicts by joint"},
+    {"where", (PyCFunction)arm_where, METH_NOARGS, "where() -> (x, y, z, pitch): the tip from one read of the positions"},
     {"torque_on", (PyCFunction)arm_torque_on, METH_NOARGS, "goals to the present positions, RAM settings, torque on"},
     {"torque_off", (PyCFunction)arm_torque_off, METH_NOARGS, "torque off: the arm drops"},
     {"move_joints", (PyCFunction)(void (*)(void))arm_move_joints, METH_VARARGS | METH_KEYWORDS,

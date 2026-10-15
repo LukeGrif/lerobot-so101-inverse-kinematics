@@ -46,6 +46,9 @@ with Arm() as arm:
   lines of the tip (`move_by`, `line_to`), on a minimum-jerk profile with goals every 20 ms. A joint
   that stalls or overloads stops the move. It checks the servos' EEPROM against the calibration
   before it starts, unfolds from the folded pose, and folds back home at the end.
+- **Where the tip is, live.** `arm.where()` reads the six servos and returns the tip's x, y, z and the
+  gripper's pitch from the forward kinematics, 1.4 ms a call on the arm. With the torque off you move
+  the arm by hand and watch the numbers (`examples/where.py`, or `examples/where.c` without Python).
 - **Fast runs, planned whole.** A closed path of the tip (a heart, a star, any curve) is solved every
   2 mm in the gripper pitch that makes a lap shortest, timed at every joint's speed and acceleration
   limit, and replayed at 100 Hz with each goal leading its joint by how the servo lags, at full
@@ -141,6 +144,18 @@ draws a triangle (8 cm along, 7 cm high) at 5 cm/s, and folds home. Every tick g
 
 Coordinates are metres in the base frame of the URDF: x forward, y to the arm's left, z up.
 
+**Where the tip is**, while you move the arm by hand:
+
+```sh
+uv run examples/where.py
+```
+
+It switches the torque off (hold the arm if it stands raised with its torque on) and prints the tip's
+x, y, z in millimetres and the gripper's pitch 20 times a second, until Ctrl-C. Nothing moves by itself.
+`make example && ./build/where /dev/ttyACM0` is the same in C alone. It reads the calibration from
+the servos' EEPROM, where `lerobot-calibrate` wrote it, and so needs no calibration file: that is the
+part a microcontroller with a display would run.
+
 **Without an arm**, `SO101_PORT=sim` (or `Arm(port="sim")`) runs a program on six simulated servos
 that answer the same packets on a clock of their own, so a minute of moves takes a moment:
 `SO101_PORT=sim uv run examples/triangle.py`. They lag their goals as real ones do (a degree of
@@ -225,6 +240,7 @@ tick of a move (time, step, goal, pos, load, ma, tip, target), to watch it.
 | `rise(z, speed=0.01)` | the tip straight up to height `z`, without the table checks: the way out of a pose at the table |
 | `run(run, learn=0, name="run", speed=1)` | a fast run (below): from the rest pose to its first point at `speed` of the limits, `learn` correcting replays, the run. Leaving the block folds back at that pace. Returns its errors |
 | `read()` | `(degrees, load %, mA)`, each a dict by joint |
+| `where()` | `(x, y, z, pitch)`: the tip (m) and the gripper's pitch (degrees) from one read of the positions, the forward kinematics in C; works with the torque off |
 | `home()` | fold to the start pose and switch the torque off |
 | `stop()` | the move running, or the next, stops at its next tick and raises `Fault`; from any thread, a signal handler or `on_tick` |
 | `check()`, `torque_on()`, `unfold()`, `torque_off()`, `close()`, `log(text)` | for a program that drives the arm without the `with` block (and `unfold_first = False` in a subclass that unfolds its own way) |
@@ -349,6 +365,20 @@ rc = so101_arm_grasp(&arm, 40, 3, 2.5, 4, &at);
 rc = so101_arm_rise(&arm, 0.10, 0.01);
 ```
 
+Where the tip is, from a calibration the servos hold in their EEPROM, as on a board without files
+([`examples/where.c`](examples/where.c)):
+
+```c
+so101_servo_cal cal[SO101_NJ];
+so101_cal_read(&hal, cal);                 /* reads only */
+so101_arm_init(&arm, &hal, cal);
+so101_arm_torque_off(&arm);                /* the joints turn by hand */
+so101_real tip[3], pitch;
+rc = so101_arm_where(&arm, NULL, tip, &pitch);   /* one read of the six positions, then so101_tip */
+```
+
+`so101_tip(&m, deg, tip, &pitch)` is the forward kinematics of the tip alone, from calibrated degrees
+(50-70 ns on an M1; `so101_pose_eval` adds the gravity torques and the other frames).
 `so101_link_frames` and `so101_link_points` give each link's frame and mesh points. `src/sim.c` is the
 simulated servos behind a `so101_hal` (`so101_sim_init`, `so101_hal_sim`); `make test` drives them.
 
@@ -361,14 +391,16 @@ keeps its samples in static memory: one thread at a time.
 
 Not built yet. The library is written for it: single precision gives the same poses as double
 (`make test` checks both), it needs about 280 KB of flash for the model and 60 KB of RAM, and an IK
-call should take about a millisecond on an ESP32-S3 (an estimate: nothing has run on one yet). The plan, from the board and the bus to commands
-over Wi-Fi, Bluetooth or buttons: [agents/esp32.md](agents/esp32.md).
+call should take about a millisecond on an ESP32-S3 (an estimate: nothing has run on one yet). A
+live readout of the tip alone (`examples/where.c`: the calibration from the EEPROM, a read, the
+forward kinematics) links to about 4 KB of code and 1 KB of RAM, the meshes left out. The plan, from
+the board and the bus to commands over Wi-Fi, Bluetooth or buttons: [agents/esp32.md](agents/esp32.md).
 
 ## Development
 
 ```sh
 make test                               # the C library in double, float, and float without the cache
-make example                            # examples/ik.c
+make example                            # examples/ik.c, and build/where (examples/where.c)
 uv run examples/kinematics.py           # the Python binding, no arm
 uv run examples/figures/heart.py --dry  # a fast run planned, no arm
 uv run --with 'placo>=0.9.6,<0.9.16' --with 'cmeel-urdfdom>=4,<5' --with 'cmeel-tinyxml2<11' \

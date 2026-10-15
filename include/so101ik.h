@@ -99,6 +99,8 @@ void so101_model_ranges(so101_model *m, const so101_servo_cal cal[SO101_NJ]);   
 void so101_model_stock(so101_model *m);   /* LeRobot's view: no offsets, the URDF's limits, no table or meshes */
 
 void so101_pose_eval(const so101_model *m, const so101_real deg[SO101_NJ], so101_pose *out);
+/* The forward kinematics of the tip alone: where it is (m) and, if pitch is not NULL, its pitch (degrees);
+ * the gripper's value is not used. About half the time of so101_pose_eval: no torques, no other frames. */
 void so101_tip(const so101_model *m, const so101_real deg[SO101_NJ], so101_real tip[3], so101_real *pitch);
 
 /* The links in chain order, then the tip frame: base_link, shoulder_link, upper_arm_link, lower_arm_link,
@@ -274,9 +276,15 @@ typedef struct {
 void so101_follow_init(so101_follow *o);
 
 
+/* The calibration servos 1-6 hold in their EEPROM, where lerobot-calibrate wrote it: for a board without
+ * the calibration file. Reads only. */
+int so101_cal_read(so101_hal *hal, so101_servo_cal cal[SO101_NJ]);
 void so101_arm_init(so101_arm *a, const so101_hal *hal, const so101_servo_cal cal[SO101_NJ]);
 int so101_arm_check(so101_arm *a);             /* every servo answers, its EEPROM matches cal */
 int so101_arm_read(so101_arm *a, so101_real pos[SO101_NJ], so101_real load[SO101_NJ], so101_real ma[SO101_NJ]);
+/* Where the arm stands: one read of the six positions, and so101_tip with the model's offsets. With the
+ * torque off the arm can be moved by hand meanwhile. deg (calibrated degrees) and pitch may be NULL. */
+int so101_arm_where(so101_arm *a, so101_real deg[SO101_NJ], so101_real tip[3], so101_real *pitch);
 int so101_arm_torque_on(so101_arm *a);         /* goals = present positions, RAM settings, torque on */
 int so101_arm_torque_off(so101_arm *a);
 int so101_arm_move_joints(so101_arm *a, const so101_real target[SO101_NJ], so101_real speed, int check);   /* deg/s */
