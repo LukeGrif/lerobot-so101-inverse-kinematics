@@ -11,8 +11,9 @@ Read before changing src/. The numbers behind each choice are in measurements.md
   system.
 - Angles are LeRobot's calibrated degrees; URDF angle = calibrated + offset. The offsets are 0 by
   default, the URDF as it stands, as LeRobot's RobotKinematics takes it. An arm whose tip lands off
-  can have its own: degrees per joint (so101_model.offsets in C; Model(offsets=...),
-  Arm(offsets=...) or SO101_OFFSETS in Python). The gripper's 0-100 is the URDF's -10 to 100 degrees
+  can have its own: degrees per joint (so101_model.offsets in C; in Python Model(offsets=...),
+  Arm(offsets=...), else SO101_OFFSETS, else ID.offsets beside the arm's calibration ID.json, so that
+  they go with the arm and its calibration rather than with one shell's environment). The gripper's 0-100 is the URDF's -10 to 100 degrees
   of jaw.
 - The ranges are the calibration's (range_min..range_max around their middle, 360/4095 degrees a
   step): compiled in from a LeRobot calibration (SO101_DEFAULT_CAL), and set again from the arm's own

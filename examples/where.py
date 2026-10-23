@@ -8,7 +8,7 @@ import time
 
 from so101ik import Arm
 
-arm = Arm(name="where")      # the port, the calibration and SO101_OFFSETS found as for a move
+arm = Arm(name="where")      # the port, the calibration and its offsets found as for a move
 try:
     arm.check()              # every servo answers and holds the calibration
     arm.torque_off()

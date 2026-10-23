@@ -152,9 +152,9 @@ uv run examples/where.py
 
 It switches the torque off (hold the arm if it stands raised with its torque on) and prints the tip's
 x, y, z in millimetres and the gripper's pitch 20 times a second, until Ctrl-C. Nothing moves by itself.
-`make example && ./build/where /dev/ttyACM0` is the same in C alone. It reads the calibration from
-the servos' EEPROM, where `lerobot-calibrate` wrote it, and so needs no calibration file: that is the
-part a microcontroller with a display would run.
+`make example && ./build/where /dev/ttyACM0 [my_follower.offsets]` is the same in C alone. It reads the
+calibration from the servos' EEPROM, where `lerobot-calibrate` wrote it, and so needs no calibration
+file, only the offsets if the arm has any: that is the part a microcontroller with a display would run.
 
 **Without an arm**, `SO101_PORT=sim` (or `Arm(port="sim")`) runs a program on six simulated servos
 that answer the same packets on a clock of their own, so a minute of moves takes a moment:
@@ -297,9 +297,21 @@ not read. After each `inverse_kinematics` call, `error` is the tip's distance fr
 
 **Offsets.** The model takes LeRobot's calibrated angle of each joint as the URDF's angle. If your
 tip lands consistently off, a joint's zero may differ from the URDF's. `offsets` (degrees added to
-the calibrated angle, per joint) corrects that: `Arm(offsets={"shoulder_lift": 2.3, "elbow_flex":
--5.9})`, or for every program, `export SO101_OFFSETS="shoulder_lift=2.3,elbow_flex=-5.9"`. They are
-0 unless set.
+the calibrated angle, per joint) corrects that. For every program, put them in a file beside the
+arm's calibration, with the same name and `.offsets` for `.json` (`my_follower.offsets` next to
+`my_follower.json`), one joint a line:
+
+```
+# degrees: URDF angle = calibrated angle + offset
+shoulder_lift=2.3
+elbow_flex=-5.9
+```
+
+`Arm` and `Model` read it wherever they find that calibration, in any shell or service, and each
+arm keeps its own. A recalibrated arm may need them fitted again: they sit next to the file they
+depend on. `export SO101_OFFSETS="shoulder_lift=2.3,elbow_flex=-5.9"` overrides the file for one
+shell (empty: 0 for every joint), and `Arm(offsets={"shoulder_lift": 2.3, ...})` overrides both.
+They are 0 unless set; an arm's log says which ones it took and from where.
 
 ## C API
 

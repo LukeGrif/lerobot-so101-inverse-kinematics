@@ -16,8 +16,11 @@ serial port whose servos hold that calibration (find_port). The environment can 
     SO101_PORT          the follower's serial port, e.g. /dev/tty.usbmodem58760431541 or /dev/ttyACM0; "sim" for
                         simulated servos, to try a program without an arm
     SO101_CALIBRATION   the follower's calibration file from lerobot-calibrate, a .json
-    SO101_OFFSETS       degrees from calibrated to URDF angles, e.g. "shoulder_lift=2.3,elbow_flex=-5.9"
-                        (0 for every joint when unset)
+    SO101_OFFSETS       degrees from calibrated to URDF angles, e.g. "shoulder_lift=2.3,elbow_flex=-5.9", over
+                        the arm's offsets file
+
+The offsets belong to the arm, so they are kept beside its calibration: ID.offsets next to ID.json, one
+joint=degrees a line (# starts a comment). 0 for every joint without the file or SO101_OFFSETS.
 """
 
 import glob
@@ -34,7 +37,7 @@ from ._core import Model as _Model
 from . import fast
 
 __all__ = ["Arm", "Model", "Pose", "RobotKinematics", "Unreachable", "Fault", "SetupError", "JOINTS",
-           "find_port", "find_calibration", "read_calibration", "read_offsets"]
+           "find_port", "find_calibration", "read_calibration", "read_offsets", "offsets_file"]
 
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 # Where lerobot-calibrate keeps a follower's file under the calibration root: so_follower/ from LeRobot
@@ -88,26 +91,45 @@ def read_calibration(path: Path | str) -> list[tuple[int, int, int, int]]:
         raise SetupError(f"{path}: not a calibration of an SO-101 follower ({type(e).__name__}: {e})") from None
 
 
-def read_offsets(offsets=None) -> tuple[float, ...]:
-    """The five offsets, pan to roll, in degrees (URDF angle = calibrated angle + offset): from a dict by joint
-    name or a sequence of five; None reads SO101_OFFSETS ("shoulder_lift=2.3,elbow_flex=-5.9"), 0 where unset."""
+def offsets_file(calibration_file: Path | str) -> Path:
+    """Where an arm's offsets are kept: ID.offsets beside its calibration ID.json. Not a .json, since
+    find_calibration takes the one .json in that folder."""
+    return Path(calibration_file).with_suffix(".offsets")
+
+
+def _offsets(offsets, calibration_file) -> tuple[tuple[float, ...], str]:
+    """read_offsets, and where they came from: "", "SO101_OFFSETS" or the offsets file."""
+    source = ""
     if offsets is None:
+        text = os.environ.get("SO101_OFFSETS")
+        if text is not None:
+            source = "SO101_OFFSETS"
+        elif calibration_file and (path := offsets_file(calibration_file)).is_file():
+            text, source = path.read_text(), str(path)
         offsets = {}
-        for item in filter(None, (s.strip() for s in os.environ.get("SO101_OFFSETS", "").split(","))):
-            name, sep, value = item.partition("=")
-            try:
-                offsets[name.strip()] = float(value)
-            except ValueError:
-                raise SetupError(f"SO101_OFFSETS: {item!r} is not joint=degrees") from None
+        for line in (text or "").splitlines():
+            for item in filter(None, (s.strip() for s in line.partition("#")[0].split(","))):
+                name, sep, value = item.partition("=")
+                try:
+                    offsets[name.strip()] = float(value)
+                except ValueError:
+                    raise SetupError(f"{source}: {item!r} is not joint=degrees") from None
     if isinstance(offsets, dict):
         unknown = set(offsets) - set(JOINTS[:5])
         if unknown:
-            raise ValueError(f"offsets: unknown joints {sorted(unknown)}; the joints are {JOINTS[:5]}")
-        return tuple(float(offsets.get(j, 0.0)) for j in JOINTS[:5])
+            raise (SetupError if source else ValueError)(f"{source or 'offsets'}: unknown joints {sorted(unknown)}; the joints are {JOINTS[:5]}")
+        return tuple(float(offsets.get(j, 0.0)) for j in JOINTS[:5]), source
     offsets = tuple(float(v) for v in offsets)
     if len(offsets) != 5:
         raise ValueError("offsets: five numbers, pan to roll, or a dict by joint name")
-    return offsets
+    return offsets, source
+
+
+def read_offsets(offsets=None, calibration_file: Path | str | None = None) -> tuple[float, ...]:
+    """The five offsets, pan to roll, in degrees (URDF angle = calibrated angle + offset): from a dict by joint
+    name or a sequence of five; None reads SO101_OFFSETS ("shoulder_lift=2.3,elbow_flex=-5.9") if it is set,
+    else the offsets file beside calibration_file (offsets_file), 0 for a joint neither names."""
+    return _offsets(offsets, calibration_file)[0]
 
 
 def _holds(port: str, cal) -> bool:
@@ -163,7 +185,7 @@ def ranges(cal) -> list[tuple[float, float]]:
 class Model(_Model):
     """The arm's kinematics: Model().ik(0.25, 0, 0.08, roll=-90) -> Pose. The ranges come from
     calibration_file, else from find_calibration() if it finds one, else from the calibration compiled in;
-    offsets as read_offsets takes them. stock=True: LeRobot's view, no offsets, the URDF's limits, no table
+    offsets as read_offsets takes them, the file beside that calibration included. stock=True: LeRobot's view, no offsets, the URDF's limits, no table
     and no meshes."""
 
     def __init__(self, stock: bool = False, calibration_file: Path | str | None = None, offsets=None):
@@ -178,7 +200,7 @@ class Model(_Model):
                     raise
         cal = read_calibration(calibration_file) if calibration_file else default_calibration()
         self.set_ranges(ranges(cal))
-        self.offsets = read_offsets(offsets)
+        self.offsets = read_offsets(offsets, calibration_file)
 
 
 class RobotKinematics:
@@ -220,8 +242,8 @@ class Arm:
     torque off at the end, also after an error (a run at its own pace). Ctrl-C (or a kill, a hang-up) stops
     the move and the arm goes home; a second one switches the torque off, and the arm drops.
 
-    port and calibration_file default to find_port() and find_calibration(), offsets to SO101_OFFSETS (see
-    read_offsets). Every tick goes to OUT/NAME.csv, every event to OUT/NAME.log and stdout; on_tick(dict) is
+    port and calibration_file default to find_port() and find_calibration(), offsets to SO101_OFFSETS, else the
+    offsets file beside the calibration (see read_offsets). Every tick goes to OUT/NAME.csv, every event to OUT/NAME.log and stdout; on_tick(dict) is
     called at every tick of a move too (time, step, goal, pos, load, ma, tip, target), to watch it. Before
     a run: the arm folded in its start pose, nothing in its way.
 
@@ -241,7 +263,7 @@ class Arm:
                 raise
             calibration_file = None        # the simulated servos take the calibration compiled in
         cal = read_calibration(calibration_file) if calibration_file else default_calibration()
-        offsets = read_offsets(offsets)
+        offsets, source = _offsets(offsets, calibration_file)
         port = port or find_port(cal)
         out = Path(out)
         out.mkdir(parents=True, exist_ok=True)
@@ -255,7 +277,7 @@ class Arm:
         self._fast, self._ran, self._pace = False, None, 1.0     # a fast run's settings on; the run it ended; its pace
         self._signals = {}
         self._arm.log(f"port {port}, calibration {calibration_file}, offsets "
-                      + " ".join(f"{v:+g}" for v in offsets))
+                      + " ".join(f"{v:+g}" for v in offsets) + (f" from {source}" if source else ""))
 
     def line(self, text: str) -> None:
         """Each event line, with its time: into NAME.log and onto stdout. When stdout stops taking them (its

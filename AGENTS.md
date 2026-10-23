@@ -30,6 +30,8 @@ uv run --with 'placo>=0.9.6,<0.9.16' --with 'cmeel-urdfdom>=4,<5' --with 'cmeel-
 
 - The environment Arm reads: SO101_PORT, SO101_CALIBRATION and SO101_OFFSETS; without the first two
   it finds the port and LeRobot's calibration file itself (README.md, The port and the calibration).
+  The offsets are the arm's, so they live in ID.offsets beside its ID.json (offsets_file); SO101_OFFSETS
+  overrides the file for one shell.
 - A run leaves outputs/so101ik/NAME.csv (every tick) and NAME.log under the directory it ran from;
   outputs/ is git-ignored.
 
@@ -64,6 +66,8 @@ uv run --with 'placo>=0.9.6,<0.9.16' --with 'cmeel-urdfdom>=4,<5' --with 'cmeel-
   arm's, and the servos' EEPROM would refuse it. Model may, since it moves nothing.
 - The offsets are 0 by default, the URDF as LeRobot takes it; the start pose is the arm's own
   (agents/design.md, The arm). Nothing in the library may assume one particular arm's numbers.
+- The offsets file is ID.offsets, never a .json: find_calibration takes the one .json in so_follower/,
+  and a second would stop every Arm() that relies on it.
 - find_port opens every candidate port when there are several and reads the servos' EEPROM: reads
   only, never a write, since one of them may be a leader arm or another device.
 - uv rebuilds the extension when a .c or .h changes (cache-keys in pyproject.toml). The .so lands in
