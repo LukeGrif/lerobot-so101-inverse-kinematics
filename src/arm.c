@@ -299,6 +299,21 @@ static int freeze(so101_arm *a, int code, const char *why) {
     return fail(a, code, "%s", why);
 }
 
+/* A held object may only have begun to slip. Stop the arm without releasing the squeeze. */
+static int freeze_grip(so101_arm *a, const so101_real pos[SO101_NJ], const char *why) {
+    so101_real grip = a->goal[SO101_GRIP];
+    memcpy(a->goal, pos, sizeof a->goal);
+    a->goal[SO101_GRIP] = grip;
+    memset(a->lead, 0, sizeof a->lead);
+    a->have_pose = 0;
+    int raw[SO101_NJ];
+    for (int j = 0; j < SO101_NJ; j++) raw[j] = to_raw(&a->cal[j], j, a->goal[j]);
+    int rc = write_raw_goals(a, raw);
+    if (rc) return rc;             /* failure to send the stop is an I/O fault, not a completed grip stop */
+    say(a, "STOP in %s: %s; arm held where it stands, gripper goal retained", a->step, why);
+    return fail(a, SO101_EGRIP, "%s", why);
+}
+
 /* ---- the ticks of a move --------------------------------------------------------------------- */
 
 #define HIST 64
@@ -308,6 +323,8 @@ static int freeze(so101_arm *a, int code, const char *why) {
  * joint has been over load_max, and the last reading. */
 typedef struct {
     int free_load;             /* a joint the overload rule leaves alone (a grasp's gripper), or -1 */
+    int grip_guard;
+    so101_real grip_min, grip_max;
     uint64_t start, next;
     double th[HIST], kept;
     so101_real ph[HIST][SO101_NJ], high[SO101_NJ];
@@ -341,6 +358,12 @@ static int tick(so101_arm *a, ticks *k, double t) {
         so101_tip(&a->model, k->pos, r.tip, NULL);
         for (int i = 0; i < 3; i++) r.target[i] = a->have_target ? a->target[i] : (so101_real)NAN;
         a->hal.tick(a->hal.ctx, &r);
+    }
+    if (k->grip_guard && (k->pos[SO101_GRIP] < k->grip_min || k->pos[SO101_GRIP] > k->grip_max)) {
+        char why[120];
+        snprintf(why, sizeof why, "gripper %.2f percent outside holding range %.2f..%.2f", (double)k->pos[SO101_GRIP],
+                 (double)k->grip_min, (double)k->grip_max);
+        return freeze_grip(a, k->pos, why);
     }
     if (!k->hn || t - k->kept >= HIST_EVERY) {
         if (k->hn == HIST) k->h0 = (k->h0 + 1) % HIST, k->hn--;
@@ -447,6 +470,9 @@ static int run(so101_arm *a, const motion *m) {
     const so101_follow *o = &m->o;
     ticks k;
     ticks_start(a, &k);
+    k.grip_guard = o->grip_guard;
+    k.grip_min = o->grip_min;
+    k.grip_max = o->grip_max;
     so101_real want[SO101_NJ], base = 0;
     int nfree = 0, hits = 0, read = 0, based = 0;
     double last = 0;
@@ -591,12 +617,18 @@ static void chain_path(so101_arm *a, void *ctx, so101_real s, so101_real want[SO
 int so101_arm_follow(so101_arm *a, const so101_real (*q)[SO101_NJ], int n, const so101_follow *o) {
     if (!a->torque) return fail(a, SO101_ESTATE, "the torque is off");
     if (n < 2) return fail(a, SO101_EPATH, "%s: a chain needs two poses or more", a->step);
+    if (o->grip_guard && (!isfinite(o->grip_min) || !isfinite(o->grip_max) || o->grip_min < 0
+                         || o->grip_max > 100 || o->grip_min > o->grip_max))
+        return fail(a, SO101_EPATH, "grip bounds must be finite, ordered and within 0..100 percent");
     so101_real from = 0, jump = 0, length = 0, tip[3], prev[3];
     for (int j = 0; j < 4; j++)
         if (RFABS(q[0][j] - a->goal[j]) > from) from = RFABS(q[0][j] - a->goal[j]);
     if (from > a->start_max)
         return fail(a, SO101_EPATH, "%s: the chain starts %.1f degrees from the goals", a->step, (double)from);
     for (int i = 0; i < n; i++) {
+        if (o->grip_guard && (!isfinite(q[i][SO101_GRIP])
+                             || RFABS(q[i][SO101_GRIP] - a->goal[SO101_GRIP]) > (so101_real)1e-4))
+            return fail(a, SO101_EPATH, "a guarded chain must keep the gripper goal unchanged");
         for (int j = 0; j < 4; j++) {
             if (q[i][j] < a->model.lo[j] - 1 || q[i][j] > a->model.hi[j] + 1)
                 return fail(a, SO101_EPATH, "%s: pose %d puts %s at %.1f, outside %.1f..%.1f", a->step, i, SHORT[j],

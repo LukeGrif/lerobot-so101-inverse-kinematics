@@ -402,6 +402,7 @@ const char *so101_strerror(int code) {
     case SO101_ESTOP: return "stopped";
     case SO101_ESTATE: return "not in a state for that";
     case SO101_EMOVED: return "a joint moved at torque-on";
+    case SO101_EGRIP: return "the gripper left its holding range";
     }
     return "unknown error";
 }

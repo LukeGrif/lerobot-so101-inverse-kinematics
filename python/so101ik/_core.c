@@ -453,7 +453,7 @@ static PyObject *py_default_cal(PyObject *mod, PyObject *noargs) {
 }
 
 extern PyTypeObject ArmType;
-int arm_type_ready(PyObject *m, PyObject *fault, PyObject *unreachable, PyTypeObject *pose_type,
+int arm_type_ready(PyObject *m, PyObject *fault, PyObject *unreachable, PyObject *grip_lost, PyTypeObject *pose_type,
                    PyObject *(*new_pose)(const so101_pose *), int (*read_deg)(PyObject *, so101_real *),
                    int (*read3)(PyObject *, so101_real *));
 
@@ -484,13 +484,15 @@ PyMODINIT_FUNC PyInit__core(void) {
     if (!m) return NULL;
     Unreachable = PyErr_NewException("so101ik.Unreachable", PyExc_ValueError, NULL);
     Fault = PyErr_NewException("so101ik.Fault", PyExc_RuntimeError, NULL);
+    PyObject *grip_lost = PyErr_NewException("so101ik.GripLost", Fault, NULL);
     PyModule_AddObject(m, "Unreachable", Unreachable);
     PyModule_AddObject(m, "Fault", Fault);
+    PyModule_AddObject(m, "GripLost", grip_lost);
     Py_INCREF(&PoseType);
     PyModule_AddObject(m, "Pose", (PyObject *)&PoseType);
     Py_INCREF(&ModelType);
     PyModule_AddObject(m, "Model", (PyObject *)&ModelType);
-    if (arm_type_ready(m, Fault, Unreachable, &PoseType, new_pose, read_deg, read3) < 0) return NULL;
+    if (arm_type_ready(m, Fault, Unreachable, grip_lost, &PoseType, new_pose, read_deg, read3) < 0) return NULL;
     if (path_functions_add(m, &ModelType, Fault, Unreachable) < 0) return NULL;
     return m;
 }

@@ -221,7 +221,7 @@ corners of a polygon.
 ## Python API
 
 ```python
-from so101ik import Arm, Model, RobotKinematics, Pose, Unreachable, Fault, SetupError
+from so101ik import Arm, Model, RobotKinematics, Pose, Unreachable, Fault, GripLost, SetupError
 ```
 
 **`Arm(port=None, calibration_file=None, offsets=None, name=None, out="outputs/so101ik", on_tick=None)`**:
@@ -235,7 +235,7 @@ tick of a move (time, step, goal, pos, load, ma, tip, target), to watch it.
 | `move_by(dx, dy, dz, speed=0.05)` | the tip along a straight line from where it is, peak speed in m/s |
 | `line_to(x, y, z, speed=0.05)` | the tip along a straight line to a point |
 | `move_joints(target, speed=30, check=True, step="joints")` | joints to angles: a dict by joint name, or all six |
-| `follow(poses, speed=0.03, duration=None, steady=False, settle=0.3, within=0, lead=False, press=0, free=(0.15, 0.5), press_ticks=3, step=None)` | through a chain of poses you planned (Poses, dicts or six angles), linearly between them, on one minimum-jerk profile (`steady`: at a steady pace). `lead`: each joint's goal led ahead by what it lags, so the joints end on the last pose and not a degree short (`lead` stays for the next chain); `within`: the hold after it ends once they stand that close (degrees). `press` (m): lowering until contact: it stops once the tip, from the servos, stands that much higher above its goal than in the `free` stretch, and the goals go where the joints stand. Returns whether it touched |
+| `follow(poses, speed=0.03, duration=None, steady=False, settle=0.3, within=0, lead=False, press=0, free=(0.15, 0.5), press_ticks=3, step=None, grip_range=None)` | through a chain of poses you planned (Poses, dicts or six angles), linearly between them, on one minimum-jerk profile (`steady`: at a steady pace). `lead`: each joint's goal led ahead by what it lags, so the joints end on the last pose and not a degree short (`lead` stays for the next chain); `within`: the hold after it ends once they stand that close (degrees). `press` (m): lowering until contact: it stops once the tip, from the servos, stands that much higher above its goal than in the `free` stretch, and the goals go where the joints stand. Returns whether it touched. `grip_range=(lo, hi)` monitors a held object as described below |
 | `grasp(rate=40, past=3, squeeze=2.5, empty=4, step="grasp")` | close the jaws at `rate` percent/s until they stop on something, then press `squeeze` past it; returns where they stopped (under `empty`: nothing held) |
 | `rise(z, speed=0.01)` | the tip straight up to height `z`, without the table checks: the way out of a pose at the table |
 | `run(run, learn=0, name="run", speed=1)` | a fast run (below): from the rest pose to its first point at `speed` of the limits, `learn` correcting replays, the run. Leaving the block folds back at that pace. Returns its errors |
@@ -255,6 +255,15 @@ GIL, so a camera's thread goes on meanwhile. The same calls can later go to a bo
 Joint angles are LeRobot's calibrated degrees (0 in the middle of each calibrated range), the
 gripper 0 (closed) to 100. The joints: `shoulder_pan`, `shoulder_lift`, `elbow_flex`, `wrist_flex`,
 `wrist_roll`, `gripper`.
+
+For a held object, `follow(..., grip_range=(lo, hi))` checks the gripper's measured position at
+every tick, including the settle. Bounds are inclusive percentages, finite and within 0–100;
+the guarded chain must keep its gripper goal unchanged. The first reading outside the range
+raises `GripLost`, a subclass of `Fault`. It freezes the five arm joints at their measured
+positions while retaining the gripper's holding goal, clears the lead and invalidates `pose`.
+Torque remains on. Catch `GripLost` to inspect and lower or recover the object using a newly
+planned path before leaving a `with` block, which otherwise folds home. The guard detects a
+change in grip; it cannot prevent every physical drop. Omit it when intentionally opening the jaws.
 
 **`Model(stock=False, calibration_file=None, offsets=None)`**: the kinematics, no arm needed.
 `ik(x, y, z, roll=0, gripper=0, pitch=None, near=None)` returns the least-loaded allowed `Pose`, the
@@ -376,6 +385,11 @@ so101_real at;
 rc = so101_arm_grasp(&arm, 40, 3, 2.5, 4, &at);
 rc = so101_arm_rise(&arm, 0.10, 0.01);
 ```
+
+For a guarded chain, set `o.grip_guard = 1` and `o.grip_min`, `o.grip_max` to the allowed
+gripper positions in percent. `SO101_EGRIP` means the arm stopped with its gripper goal
+retained; its caller handles the object before folding home. Invalid bounds or a chain
+that changes the gripper goal return `SO101_EPATH` before sending the chain.
 
 Where the tip is, from a calibration the servos hold in their EEPROM, as on a board without files
 ([`examples/where.c`](examples/where.c)):

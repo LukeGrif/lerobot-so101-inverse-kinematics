@@ -42,6 +42,7 @@ enum {
     SO101_ESTOP = -8,          /* hal.stop() asked to stop */
     SO101_ESTATE = -9,         /* not now: no torque, no pose to go on from */
     SO101_EMOVED = -10,        /* a joint moved when the torque came on */
+    SO101_EGRIP = -11,         /* the gripper left the requested holding range */
 };
 const char *so101_strerror(int code);
 
@@ -272,6 +273,12 @@ typedef struct {
     so101_real press;            /* m (0) */
     so101_real free_from, free_to;   /* fractions of the duration (0.15, 0.5) */
     int press_ticks;             /* (3) */
+    /* Optional held-object guard, checked on every reading including the settle. The chain must
+     * keep the gripper goal unchanged. A position outside these inclusive percent bounds stops
+     * with SO101_EGRIP: arm goals at measured positions, gripper goal retained, lead cleared,
+     * pose invalidated, torque left on. The caller must recover or lower a held object. */
+    int grip_guard;              /* disabled (0) */
+    so101_real grip_min, grip_max; /* 0 <= grip_min <= grip_max <= 100 when enabled */
 } so101_follow;
 void so101_follow_init(so101_follow *o);
 

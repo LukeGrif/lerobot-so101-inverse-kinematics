@@ -32,11 +32,11 @@ import time
 from pathlib import Path
 
 from ._core import Arm as _Arm
-from ._core import Fault, Pose, Unreachable, default_calibration, fk_urdf, ik_local
+from ._core import Fault, GripLost, Pose, Unreachable, default_calibration, fk_urdf, ik_local
 from ._core import Model as _Model
 from . import fast
 
-__all__ = ["Arm", "Model", "Pose", "RobotKinematics", "Unreachable", "Fault", "SetupError", "JOINTS",
+__all__ = ["Arm", "Model", "Pose", "RobotKinematics", "Unreachable", "Fault", "GripLost", "SetupError", "JOINTS",
            "find_port", "find_calibration", "read_calibration", "read_offsets", "offsets_file"]
 
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
@@ -397,7 +397,8 @@ class Arm:
 
     def follow(self, poses, speed: float = 0.03, *, duration: float | None = None, steady: bool = False,
                settle: float = 0.3, within: float = 0.0, lead: bool = False, press: float = 0.0,
-               free: tuple[float, float] = (0.15, 0.5), press_ticks: int = 3, step: str | None = None) -> bool:
+               free: tuple[float, float] = (0.15, 0.5), press_ticks: int = 3, step: str | None = None,
+               grip_range: tuple[float, float] | None = None) -> bool:
         """Through a chain of poses (Poses, dicts by joint or six angles each; the gripper stays where it is
         where one does not say), linearly between them, at a peak tip speed in m/s or over duration s, on
         one minimum-jerk profile (steady: at a steady pace), then held settle s. The first pose must be
@@ -409,10 +410,16 @@ class Arm:
         servo up to 1.5 degrees short); the lead (Arm.lead) stays for the next chain. press (m): lowering until
         contact: the move stops once the tip, from the servos, stands this much higher above the goals' tip
         than it did in the free stretch (fractions of the duration) for press_ticks ticks; it ends there or at
-        the chain's end with every goal where its joint stands, and returns whether it touched."""
+        the chain's end with every goal where its joint stands, and returns whether it touched.
+
+        grip_range: optional inclusive (minimum, maximum) gripper positions in percent, checked every
+        tick, including the settle. The chain must keep the gripper goal unchanged. A reading outside
+        the range raises GripLost (a Fault), stops the arm joints at their measured positions while
+        retaining the gripper goal, clears the lead and invalidates pose. Torque remains on. Catch it
+        to lower or recover a held object before leaving a with block, which would otherwise fold home."""
         self._ready()
         return self._arm.follow(poses, speed, duration or 0.0, steady, settle, within, lead, press, free, press_ticks,
-                                step)
+                                step, grip_range)
 
     def grasp(self, rate: float = 40.0, past: float = 3.0, squeeze: float = 2.5, empty: float = 4.0,
               step: str = "grasp") -> float:

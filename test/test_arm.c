@@ -11,6 +11,13 @@
 
 static int stop_after, stops;        /* hal.stop says stop at this call (0: never) */
 static int verbose;
+static int grip_change_tick, grip_ticks, grip_block;
+
+/* Change the simulated object's width during a single C move, without splitting that move. */
+static void h_tick(void *c, const so101_tick *r) {
+    if (grip_change_tick && ++grip_ticks == grip_change_tick)
+        ((so101_sim *)c)->lo_block[SO101_GRIP] = grip_block;
+}
 
 static int h_stop(void *c) { return stop_after && ++stops >= stop_after; }
 static void h_log(void *c, const char *line) {
@@ -45,6 +52,7 @@ static void ready_arm(so101_sim *s, so101_arm *a) {
     so101_hal_sim(&h, s);
     h.stop = h_stop;
     h.log = h_log;
+    h.tick = h_tick;
     so101_arm_init(a, &h, NULL);
     a->sag = 0;                              /* the simulation has no gravity */
     CHECK(so101_arm_check(a) == SO101_OK, "check: %s", a->err);
@@ -70,8 +78,78 @@ static int line(so101_arm *a, const so101_model *m0, const so101_real d[3], so10
     return n;
 }
 
+static void grip_guards(void) {
+    /* Closing, widening, a loss during the settle, and the same loss with the guard disabled. */
+    for (int kind = 0; kind < 4; kind++) {
+        so101_sim s;
+        so101_arm a;
+        ready_arm(&s, &a);
+        const so101_servo_cal *g = &s.cal[SO101_GRIP];
+        so101_real q[2][NS], at, pos[NS];
+        memcpy(q[0], a.goal, sizeof q[0]);
+        q[0][SO101_GRIP] = 45;
+        CHECK(!so101_arm_move_joints(&a, q[0], 90, 0), "guard open: %s", a.err);
+        s.lo_block[SO101_GRIP] = g->range_min + (int)(0.30 * (g->range_max - g->range_min));
+        CHECK(!so101_arm_grasp(&a, 40, 3, 2.5, 4, &at), "guard grasp: %s", a.err);
+        so101_real grip_goal = a.goal[SO101_GRIP];
+        memcpy(q[0], a.goal, sizeof q[0]);
+        memcpy(q[1], a.goal, sizeof q[1]);
+        q[1][SO101_PAN] += 2;
+        so101_follow o;
+        so101_follow_init(&o);
+        o.duration = kind == 2 ? (so101_real)0.1 : (so101_real)1.0;
+        o.settle = (so101_real)0.6;
+        o.grip_guard = kind != 3;
+        o.grip_min = 29, o.grip_max = 31;
+        for (int j = 0; j < 4; j++) a.lead[j] = (so101_real)0.2;
+        o.lead = 1;
+        grip_ticks = 0;
+        grip_change_tick = kind == 2 ? 10 : 5;
+        grip_block = kind == 1 ? g->range_min + (int)(0.35 * (g->range_max - g->range_min)) : -1;
+        uint64_t started = s.now;
+        int rc = so101_arm_follow(&a, (const so101_real (*)[NS])q, 2, &o);
+        grip_change_tick = 0;
+        if (kind == 3) {
+            CHECK(rc == SO101_OK, "disabled grip guard stopped: %s", a.err);
+        } else {
+            CHECK(rc == SO101_EGRIP, "guard kind %d returned %d: %s", kind, rc, a.err);
+            CHECK(a.torque && !a.have_pose, "grip stop changed torque or kept a stale pose");
+            CHECK(fabs(a.goal[SO101_GRIP] - grip_goal) < 1e-4, "grip stop released its goal");
+            so101_arm_read(&a, pos, NULL, NULL);
+            CHECK(off_by(&a, pos, a.goal) < 0.5, "grip stop did not hold the measured arm position");
+            for (int j = 0; j < 4; j++) CHECK(a.lead[j] == 0, "grip stop retained lead on joint %d", j);
+            CHECK((double)(s.now - started) / 1e6 < (kind == 2 ? 0.7 : 0.5), "grip stop finished the motion first");
+            if (kind != 2) CHECK(fabs(a.goal[SO101_PAN] - q[1][SO101_PAN]) > 1, "grip stop reached the far end");
+        }
+        CHECK(!so101_arm_torque_off(&a), "guard torque off: %s", a.err);
+    }
+
+    so101_sim s;
+    so101_arm a;
+    ready_arm(&s, &a);
+    so101_real q[2][NS];
+    memcpy(q[0], a.goal, sizeof q[0]);
+    memcpy(q[1], a.goal, sizeof q[1]);
+    so101_follow o;
+    so101_follow_init(&o);
+    o.grip_guard = 1;
+    o.grip_min = 40, o.grip_max = 30;
+    CHECK(so101_arm_follow(&a, (const so101_real (*)[NS])q, 2, &o) == SO101_EPATH, "reversed grip bounds accepted");
+    o.grip_min = (so101_real)NAN;
+    CHECK(so101_arm_follow(&a, (const so101_real (*)[NS])q, 2, &o) == SO101_EPATH, "NaN grip bounds accepted");
+    o.grip_min = 0, o.grip_max = 100;
+    q[1][SO101_GRIP] += 1;
+    CHECK(so101_arm_follow(&a, (const so101_real (*)[NS])q, 2, &o) == SO101_EPATH, "guarded gripper opening accepted");
+    q[1][SO101_GRIP] = q[0][SO101_GRIP];
+    CHECK(so101_arm_follow(&a, (const so101_real (*)[NS])q, 2, &o) == SO101_OK, "in-range grip failed: %s", a.err);
+    o.grip_min = 40, o.grip_max = 50;
+    CHECK(so101_arm_follow(&a, (const so101_real (*)[NS])q, 2, &o) == SO101_EGRIP, "initially bad grip did not stop");
+    CHECK(!so101_arm_torque_off(&a), "guard validation torque off: %s", a.err);
+}
+
 int main(int argc, char **argv) {
     verbose = argc > 1;
+    grip_guards();
     const char *kind = sizeof(so101_real) == 4 ? "float" : "double";
     static so101_sim s;
     static so101_arm a;

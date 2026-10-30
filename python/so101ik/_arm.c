@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include "so101ik.h"
 
-static PyObject *Fault, *Unreachable;
+static PyObject *Fault, *Unreachable, *GripLost;
 static PyTypeObject *PoseType;
 static PyObject *(*new_pose)(const so101_pose *);
 static int (*read_deg)(PyObject *, so101_real *);
@@ -132,7 +132,8 @@ static PyObject *done(ArmObject *o, int rc) {
         PyErr_SetNone(PyExc_KeyboardInterrupt);
         return NULL;
     }
-    PyErr_SetString(rc == SO101_EUNREACHABLE ? Unreachable : Fault, o->arm.err[0] ? o->arm.err : so101_strerror(rc));
+    PyErr_SetString(rc == SO101_EUNREACHABLE ? Unreachable : rc == SO101_EGRIP ? GripLost : Fault,
+                    o->arm.err[0] ? o->arm.err : so101_strerror(rc));
     return NULL;
 }
 
@@ -392,16 +393,25 @@ static int read_keep_grip(ArmObject *self, PyObject *obj, so101_real deg[SO101_N
 
 static PyObject *arm_follow(ArmObject *self, PyObject *args, PyObject *kw) {
     static char *kws[] = {"poses", "speed", "duration", "steady", "settle", "within", "lead", "press", "free", "press_ticks",
-                          "step", NULL};
-    PyObject *poses;
+                          "step", "grip_range", NULL};
+    PyObject *poses, *grip_range = Py_None;
     so101_follow o;
     so101_follow_init(&o);
     double speed = o.speed, duration = 0, settle = o.settle, within = 0, press = 0, from = o.free_from, to = o.free_to;
     int steady = 0, lead = 0, ticks = o.press_ticks;
     const char *step = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kw, "O|ddpddpd(dd)iz", kws, &poses, &speed, &duration, &steady, &settle, &within,
-                                     &lead, &press, &from, &to, &ticks, &step))
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "O|ddpddpd(dd)izO", kws, &poses, &speed, &duration, &steady, &settle, &within,
+                                     &lead, &press, &from, &to, &ticks, &step, &grip_range))
         return NULL;
+    if (grip_range != Py_None) {
+        double lo, hi;
+        if (!PyArg_ParseTuple(grip_range, "dd:grip_range", &lo, &hi)) return NULL;
+        if (!isfinite(lo) || !isfinite(hi) || lo < 0 || hi > 100 || lo > hi) {
+            PyErr_SetString(PyExc_ValueError, "grip_range: finite ordered bounds within 0..100 percent");
+            return NULL;
+        }
+        o.grip_guard = 1, o.grip_min = (so101_real)lo, o.grip_max = (so101_real)hi;
+    }
     OPEN(self);
     PyObject *seq = PySequence_Fast(poses, "poses: a sequence of Poses, dicts or six angles");
     if (!seq) return NULL;
@@ -658,7 +668,7 @@ static PyMethodDef arm_methods[] = {
      "moves most"},
     {"follow", (PyCFunction)(void (*)(void))arm_follow, METH_VARARGS | METH_KEYWORDS,
      "follow(poses, speed=0.03, duration=0, steady=False, settle=0.3, within=0, lead=False, press=0, free=(0.15, 0.5),\n"
-     "press_ticks=3, step=None) -> contact: through a chain of poses (so101_arm_follow)"},
+     "press_ticks=3, step=None, grip_range=None) -> contact: through a chain of poses (so101_arm_follow)"},
     {"grasp", (PyCFunction)(void (*)(void))arm_grasp, METH_VARARGS | METH_KEYWORDS,
      "grasp(rate=40, past=3, squeeze=2.5, empty=4, step='grasp') -> where the jaw stopped, percent (so101_arm_grasp)"},
     {"rise", (PyCFunction)(void (*)(void))arm_rise, METH_VARARGS | METH_KEYWORDS,
@@ -700,10 +710,11 @@ PyTypeObject ArmType = {
     .tp_getset = arm_getset,
 };
 
-int arm_type_ready(PyObject *m, PyObject *fault, PyObject *unreachable, PyTypeObject *pose_type,
+int arm_type_ready(PyObject *m, PyObject *fault, PyObject *unreachable, PyObject *grip_lost, PyTypeObject *pose_type,
                    PyObject *(*np)(const so101_pose *), int (*rd)(PyObject *, so101_real *), int (*r3)(PyObject *, so101_real *)) {
     Fault = fault;
     Unreachable = unreachable;
+    GripLost = grip_lost;
     PoseType = pose_type;
     new_pose = np;
     read_deg = rd;

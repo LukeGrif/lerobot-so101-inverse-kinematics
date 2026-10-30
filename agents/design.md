@@ -158,6 +158,12 @@ joints were moved to, their stops, so the fold follows each arm's own calibratio
   on what it holds as long as the servo ramps to the goal (Acceleration 254: at 0 it lets go for a tick
   and grips again from open, wider). The overload rule leaves the gripper alone here: pressing is the
   point, and Torque_Limit caps it.
+- **A held-object guard**: follow's optional grip_guard and inclusive grip_min/grip_max bounds
+  watch the gripper position on every tick, including the settle. The chain cannot change the
+  gripper goal. An out-of-range reading returns SO101_EGRIP, freezes the five arm joints at that
+  reading, retains the gripper goal, clears the lead and invalidates the pose. Torque stays on;
+  the caller plans recovery. Python raises GripLost (a Fault). Ordinary stops keep their existing
+  behavior. Simulated release and widening during one C call test both bounds and the settle.
 - **The simulated servos** (src/sim.c, so101_sim): each servo's control table answers the packets of
   sts.c (ping, read, write, sync read, sync write), and between packets the servos move a millisecond
   at a time on a clock of their own: towards the goal at 20 steps/s per step of distance up to 2300
