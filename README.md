@@ -82,7 +82,7 @@ other figures and the runs on the arm: [agents/measurements.md](agents/measureme
 - **macOS or Linux.** On Linux, your user in the `dialout` group for the serial port
   (`sudo usermod -aG dialout $USER`, then log in again). It has driven arms from macOS; on Linux it
   builds and passes its tests, but has not driven an arm yet: reports welcome.
-- **Python 3.12+** and **[uv](https://docs.astral.sh/uv/)** (or pip).
+- **Python 3.10+** (3.12+ is what it was developed on; 3.10 and 3.11 build and run the same) and **[uv](https://docs.astral.sh/uv/)** (or pip).
 - **A C compiler**: on macOS `xcode-select --install`, on Debian or Ubuntu
   `sudo apt install build-essential`.
 

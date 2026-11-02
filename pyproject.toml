@@ -6,7 +6,7 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Stepan Kandrushin" }]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = ["numpy>=1.26"]
 keywords = ["so101", "so-101", "so-arm101", "so-arm100", "lerobot", "inverse-kinematics", "kinematics",
             "robot-arm", "feetech", "esp32"]
